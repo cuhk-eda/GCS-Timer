@@ -1,3 +1,1 @@
 # GCS-Timer
-
-Coming soon.
