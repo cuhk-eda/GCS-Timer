@@ -20,6 +20,21 @@ You may want to change `-arch=sm_86` according to your GPU.
 
 The spef files of `div` and `hyp` are zipped and need to be unzipped first.
 
+## Benchmarks and Evaluation
+
+The benchmarks are the four largest arithmetic designs from the [EPFL combinational benchmark suite](https://www.epfl.ch/labs/lsi/page-102566-en-html/benchmarks/). They are synthesized, placed and routed using commercial tools. Each design consists of a verilog file (`test.v`) and a spef file (`test.spef`) for timing analysis. Delay results of each cell and net are provided in `pt_cell.results/pt_net.results` (by PrimeTime) and `spice_deck_all.txt` (by HSPICE). `test.pt` contains the graph-based analysis results by PrimeTime.
+
+### Stage Delay Calculation
+To evaluate the net/cell accuracy of GCS-Timer, variable `EVALUATE` in file `gpu_timer.hpp` must be set to `1`. This sets the input slew of each driver gate to the same value as used to generate the PrimeTime and HSPICE delay results (this value is extracted from PrimeTime) to ensure fair comparison. When `EVALUATE` is set to `1`, GCS-Timer reads `pt_cell.results/pt_net.results/spice_deck_all.txt` and output the comparison results.
+
+HSPICE is a transistor-level simulation tool that is inherently more accurate than gate-level delay calculators such as PrimeTime and GCS-Timer. Using HSPICE as a reference tool, we show that GCS-Timer is more accurate than PrimeTime in terms of net/cell delay calculation.
+
+### Graph-Based Analysis
+Unlike stage delay calculation, graph-based timing analysis does not have "golden" results as this is beyond the capability of HSPICE.
+
+By default (`EVALUATE` is set to `0`), GCS-Timer generates the arrival time of each output port, which can be compared with PrimeTime's timing results in `test.pt`. This comparison is for reference only, as there are no golden results.
+
+
 ## Contact
 [Shiju Lin](shijulin.github.io) (email: sjlin@cse.cuhk.edu.hk)
 
