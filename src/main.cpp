@@ -14,10 +14,10 @@ void read_lib() {
     double t = clock();
     
     std::vector<std::string> files = {
-        "/research/dept8/gds/sjlin/sta/CCS-Timer/asap7sc7p5t_RVT_TT/asap7sc7p5t_INVBUF_RVT_TT_ccs_220122.lib",
-        "/research/dept8/gds/sjlin/sta/CCS-Timer/asap7sc7p5t_RVT_TT/asap7sc7p5t_SIMPLE_RVT_TT_ccs_211120.lib",
-        "/research/dept8/gds/sjlin/sta/CCS-Timer/asap7sc7p5t_RVT_TT/asap7sc7p5t_AO_RVT_TT_ccs_211120.lib", 
-        "/research/dept8/gds/sjlin/sta/CCS-Timer/asap7sc7p5t_RVT_TT/asap7sc7p5t_OA_RVT_TT_ccs_211120.lib"
+        "lib/asap7sc7p5t_INVBUF_RVT_TT_ccs_220122.lib",
+        "lib/asap7sc7p5t_SIMPLE_RVT_TT_ccs_211120.lib",
+        "lib/asap7sc7p5t_AO_RVT_TT_ccs_211120.lib", 
+        "lib/asap7sc7p5t_OA_RVT_TT_ccs_211120.lib"
     };
 
     bool multithreaded = false;
