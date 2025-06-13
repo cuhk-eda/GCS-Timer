@@ -25,9 +25,25 @@ You may want to change `-arch=sm_86` according to your GPU.
 
 ## Run
 ```bash
-./GCS_Timer <benchmark_name>
+./GCS_Timer <benchmark_name> [-CPU]
 ```
-`benchmark_name` can be `mul`, `log2`, `div` and `hyp`, which are the designs used for evaluation in the paper. 
+`benchmark_name` can be `mul`, `log2`, `div` and `hyp`, which are the designs used for evaluation in the paper.
+
+`-CPU` enables the CPU version.
+
+Examples:
+
+Running `mul` on GPU
+
+```bash
+./GCS_Timer mul
+```
+
+Running `mul` on CPU
+
+```bash
+./GCS_Timer mul -CPU
+```
 
 The spef files of `div` and `hyp` are zipped and need to be unzipped first.
 
