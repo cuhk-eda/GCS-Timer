@@ -88,6 +88,7 @@ struct net {
 
     net(string _name, NET_TYPE _net_type);
 
+    void build_mx();
 
     int n;
     double total_cap;
@@ -134,7 +135,7 @@ struct design {
     design(string name, string path);
 
     vector<vector<int>> levelize();
-    void update_timing(double primary_input_slew);
+    void update_timing(double primary_input_slew, bool useCPU = false);
     void compute_delay(compute_arc &arc, int pass);
     void compute_delay_input(double input_slew, net &net, int signal);
     double compute_delay_internal(double input_slew, net &net, CCS::ccs_table &table, CCS::table2D &nldm, int signal, int isignal, int ipin, int driver_gate_id);
@@ -307,6 +308,11 @@ void design::read_sp_results() {
 net::net(string _name, NET_TYPE _net_type) : net_name(_name), net_type(_net_type) {
     n = 0;
     gates.resize(1);
+}
+
+void net::build_mx() {
+    g = mat(n, n);
+    for(auto e : ress) g.addG(get<0> (e), get<1> (e), 1.0 / get<2> (e));
 }
 
 gate::gate(int _cell_id, int _gate_id, string _gate_name) : cell_id(_cell_id), gate_id(_gate_id), gate_name(_gate_name) {
@@ -642,7 +648,7 @@ void design::compute_delay(compute_arc &arc, int pass) {
 int DEBUG_ID;
 double MAX_CAP_DIFF = 0;
 int MAX_CAP_CNT = 0;
-/*
+
 double design::compute_delay_internal(double input_slew, net &net, CCS::ccs_table &table, CCS::table2D &nldm, int signal, int isignal, int ipin, int driver_gate_id) {
 
     double deltaT = DELTA_T;
@@ -680,6 +686,7 @@ double design::compute_delay_internal(double input_slew, net &net, CCS::ccs_tabl
                 double min_cap = 1000;
                 int cnt = 0;
                 for(int opin_id = 0; opin_id < cell.get_opin_size(); opin_id++) {
+                    
                     int arc_idx = cell.get_arc_index(net.gates[i].second, opin_id);
                     for(auto &arc : cell.arcs[arc_idx]) {
                         double new_cap = arc.ccs_cap[signal][iter].lookup(slews[i], nets[gate.o_nets[opin_id]].total_cap);
@@ -690,27 +697,22 @@ double design::compute_delay_internal(double input_slew, net &net, CCS::ccs_tabl
                 }
                 MAX_CAP_DIFF = max(MAX_CAP_DIFF, cap - min_cap);
                 MAX_CAP_CNT = max(MAX_CAP_CNT, cnt);
-                GOLDEN_stage_port_cap[(stage_port_acc_num_cpu[DEBUG_ID] + i) * 2 + iter] = cap;
+                //GOLDEN_stage_port_cap[(stage_port_acc_num_cpu[DEBUG_ID] + i) * 2 + iter] = cap;
                 //if(cap - min_cap > 1) printf("min_cap=%.4f  cap=%.4f\n", min_cap, cap);
                 cap_g[i] += cap;
             } else {
                 cap_g[i] += cell.nldm_cap[signal][net.gates[i].second];
             }
-            }
+        }
+
         for(auto &cap : cap_g) cap *= 2 / deltaT;
         mat G = net.g;
 
-        for(int i = 0; i < n; i++) G.addG(i, cap_g[i]);
+        for(int i = 0; i < n; i++) {
+            G.addG(i, cap_g[i]);
+        }
         double inv_calc_start_time = clock();
         invG = G.inv();
-        if(DEBUG_ID == 20 && signal == 0 && !nldm_cap) {
-            printf("GOLDEN INV\n");
-            for(int i = 0; i < n; i++) {
-                for(int j = 0; j < n; j++) printf("%10.3f", invG.val[i][j]);
-                printf("\n");
-            }
-            printf("GOLDEN INV END\n");
-        }
         inv_calc_time += clock() - inv_calc_start_time;
         if(nldm_cap) inv_calc_time_iter0 += clock() - inv_calc_start_time;
     };
@@ -751,16 +753,13 @@ double design::compute_delay_internal(double input_slew, net &net, CCS::ccs_tabl
     double sim_start_time = clock();
     vector<double> slews, slews1, slews2;
     for(int _ = 0; _ < 2; _++) {
-       // cerr << "start sim " << _ << endl;
         simulate(slews1, slews2, _ == 0);
-        //cerr << "end   sim " << _ << endl;
         if(_ == 1) continue;
         slews = slews1 = slews2 = get_time_vec(0.9) - get_time_vec(0.1);
 
         //deltaT = (sim_times.back() - sim_times[0]) / 20;
     }
 
-    sim_time += clock() - sim_start_time;
 
     auto times_50 = get_time_vec(0.5);
 
@@ -776,10 +775,10 @@ double design::compute_delay_internal(double input_slew, net &net, CCS::ccs_tabl
     //if(net.net_type == OUTPUT) po_at[signal][net.net_name] = gates[driver_gate_id].i_ats[isignal][ipin] + times_50[1] - refer_time;
 
     //GOLDEN[DEBUG_ID * max_RC_port_count] = times_50[0] - refer_time;
-    for(int i = 0; i < net.gates.size(); i++) GOLDEN[DEBUG_ID * max_RC_port_count + i] = times_50[i] - refer_time;
+    //for(int i = 0; i < net.gates.size(); i++) GOLDEN[DEBUG_ID * max_RC_port_count + i] = times_50[i] - refer_time;
 
     return times_50[0] - refer_time;
-}*/
+}
 
 
 //__device__ const double VDD = 0.7;
@@ -1138,7 +1137,7 @@ void design::compute_delay_input(double input_slew, net &net, int signal) {
 
         int cap_type = 0;
         compute_inv_g(slews1, cap_type, nldm_cap);
-        while(*min_element(sim_voltages.back().begin(), sim_voltages.back().end()) < 0.9 * VDD) {            
+        while(*min_element(sim_voltages.back().begin(), sim_voltages.back().end()) < 0.9 * VDD) {      
             if(!nldm_cap && cap_type == 0 && sim_voltages.back()[1] >= 0.5 * VDD)
                 compute_inv_g(slews2, cap_type = 1, nldm_cap);
             double t = sim_times.back() + deltaT, v_src = waveform(t);//V_T_SLOPE * t;
@@ -1162,7 +1161,6 @@ void design::compute_delay_input(double input_slew, net &net, int signal) {
         //slews1 = (get_time_vec(0.5) - get_time_vec(0.1)) * 2;
         //slews2 = (get_time_vec(0.9) - get_time_vec(0.5)) * 2;
     }
-
 
     sim_time += clock() - sim_start_time;
 
@@ -2542,7 +2540,11 @@ vector<double> operator + (vector<double> a, vector<double> b) {
     for(auto e : b) a.emplace_back(e);
     return a;
 }
-void design::update_timing(double primary_input_slew) {
+void design::update_timing(double primary_input_slew, bool useCPU) {
+    std::cout << "\n    --------------------------------------" << std::endl;
+    std::cout << "    update timing: " << (useCPU ? "CPU" : "GPU") << " mode" << std::endl;
+    std::cout << "    --------------------------------------\n" << std::endl;
+
 
 
     double GPU_sta_graph_start_time = clock();
@@ -2563,8 +2565,8 @@ void design::update_timing(double primary_input_slew) {
 
 
 
-    bool CPU_STA = false;
-    if(CPU_STA) {
+    if(useCPU) {
+        for(auto &net : nets) net.build_mx();
         for(auto net_id : input)
             for(int signal = 0; signal < 2; signal++)
                 compute_delay_input(primary_input_slew, nets[net_id], signal);
@@ -2579,199 +2581,200 @@ void design::update_timing(double primary_input_slew) {
                         for(auto &arc : cell.arcs[arc_id])
                             for(int s = 0; s < 4; s++) if(arc.signal[s]) {
                                 int n = nets[gate.o_nets[opin]].n;
-                                if(!(sizes[iter - 1] < n && n <= sizes[iter])) continue;
-                                auto delay = compute_delay_internal(gate.slews[s / 2][ipin], nets[gate.o_nets[opin]], arc.current[s % 2], arc.nldm_slew[s % 2], s % 2, s / 2, ipin, gate_id);
-                                gate.update_arc_delay(delay, arc_id, s);
+                                if(!(sizes[iter - 1] < n && n <= sizes[iter])) continue;                    
+                                auto delay = compute_delay_internal(gate.slews[s / 2][ipin], nets[gate.o_nets[opin]], arc.current[s % 2], arc.nldm_slew[s % 2], s % 2, s / 2, ipin, gate_id);                          
+                                gate.update_arc_delay(delay, arc_id, s);                                
                                 DEBUG_ID++;
                             }
                     }
                 }
             }
         }
-        cout << "[END] CPU STA" << endl;
-    }
+    } else {
 
     
-    max_port_num = max_RC_port_count;
-    vector<cudaStream_t> streams(sizes.size());
-    for(auto &stream : streams) cudaStreamCreate(&stream);
+        max_port_num = max_RC_port_count;
+        vector<cudaStream_t> streams(sizes.size());
+        for(auto &stream : streams) cudaStreamCreate(&stream);
 
-    double gpu_input_net_time = clock();
-    print_GPU_mem();
-    {
-        int *input_node2_acc_num_cpu = new int[input_num + 1](), *input_node2_acc_num;
-        vector<int> RC_size_count(max_RC_node_count + 1, 0);
-        for(int i = 0; i < input_num; i++) {
-            int net_id = input_nets_cpu[i];
-            input_node2_acc_num_cpu[i + 1] = input_node2_acc_num_cpu[i] + (nets[net_id].n + 1) * (nets[net_id].n + 1);
-            RC_size_count[nets[net_id].n]++;
-        }
-        for(int i = max_RC_node_count; i >= 1; i--) RC_size_count[i - 1] += RC_size_count[i];
-        cudaMalloc(&input_g, 2 * sizeof(double) * input_node2_acc_num_cpu[input_num]);
-        cudaMalloc(&input_inv, 2 * sizeof(double) * input_node2_acc_num_cpu[input_num]);
-        cudaMalloc(&input_cap_g, 2 * sizeof(double) * input_node2_acc_num_cpu[input_num]);
-        cudaMalloc(&input_node2_acc_num, sizeof(int) * (input_num + 1));
-        cudaMemcpy(input_node2_acc_num, input_node2_acc_num_cpu, sizeof(int) * (input_num + 1), cudaMemcpyHostToDevice);
-        int *input_idx2net_cpu = new int[input_node2_acc_num_cpu[input_num]](), *input_idx2net;
-        for(int i = 0; i < input_num; i++) {
-            int n = nets[input_nets_cpu[i]].n + 1;
-            for(int j = 0; j < n * n; j++) input_idx2net_cpu[input_node2_acc_num_cpu[i] + j] = i;
-        }
-        cudaMalloc(&input_idx2net, sizeof(int) * input_node2_acc_num_cpu[input_num]);
-        cudaMemcpy(input_idx2net, input_idx2net_cpu, sizeof(int) * input_node2_acc_num_cpu[input_num], cudaMemcpyHostToDevice);
-        build_input_mat<<<input_num * 2, max_RC_node_count + 1>>> (input_node2_acc_num, input_num);
-
-        for(int i = 0; i <= max_RC_node_count; i++) if(RC_size_count[i] > 0)
-            build_input_inv<<<BLOCK_NUM(2 * input_node2_acc_num_cpu[RC_size_count[i]]), THREAD_NUM>>>
-                (input_node2_acc_num, input_idx2net, input_node2_acc_num_cpu[RC_size_count[i]], input_node2_acc_num_cpu[input_num], i, 0);
-        for(int i = max_RC_node_count; i >= 0; i--) if(RC_size_count[i] > 0)
-            build_input_inv<<<BLOCK_NUM(2 * input_node2_acc_num_cpu[RC_size_count[i]]), THREAD_NUM>>>
-                (input_node2_acc_num, input_idx2net, input_node2_acc_num_cpu[RC_size_count[i]], input_node2_acc_num_cpu[input_num], i, 1);
-        build_input_inv<<<BLOCK_NUM(2 * input_node2_acc_num_cpu[input_num]), THREAD_NUM>>>
-            (input_node2_acc_num, input_idx2net, input_node2_acc_num_cpu[input_num], input_node2_acc_num_cpu[input_num], 0, 2);
-
-        calc_delay_input_new<<<input_num, max_RC_node_count + 1, (max_RC_node_count + 1) * sizeof(double)>>> (input_node2_acc_num, input_node2_acc_num_cpu[input_num], 20, 0);
-        calc_delay_input_new<<<input_num, max_RC_node_count + 1, (max_RC_node_count + 1) * sizeof(double)>>> (input_node2_acc_num, input_node2_acc_num_cpu[input_num], 20, 1);
-    }
-    cudaDeviceSynchronize();
-    assert(cudaGetLastError() == cudaSuccess);
-    output_log("GPU input net time: " + to_string((clock() - gpu_input_net_time) / CLOCKS_PER_SEC));
-
-
-    GPU_sta_graph_start_time = clock();
-    build_stage_matA<<<stage_num, max_RC_node_count>>> (0);
-    for(int i = 0; i < max_RC_port_count; i++) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 0, 0);
-    for(int i = max_RC_port_count - 1; i >= 0; i--) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 1, 0);
-    build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], 0, 2, 0);
-    build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 0, 0);
-    build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 1, 0);
-    build_stage_invD<<<BLOCK_NUM(stage_inode2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_inode2_acc_num_cpu[stage_num], 0);//rely on build_stage_invBC(0)
-
-    cudaDeviceSynchronize();    
-    assert(cudaGetLastError() == cudaSuccess);
-
-    for(int i = 0; i < topo.size(); i++) {
-        int size_sum = 0, size_max = 32;
-        for(int j = 1; j < sizes.size(); j++) size_sum += size_num[i][j], size_max = max(size_max, size_max_node_num[i][j]);
-        if(size_sum < 300)
-            pass0<<<size_sum, size_max, (size_max + 430) * sizeof(double)>>> (size_offset[i][1]);
-        else 
-            for(int j = 1; j < sizes.size(); j++) if(size_num[i][j] > 0) {
-                pass0<<<size_num[i][j], max(32, size_max_node_num[i][j]), (size_max_node_num[i][j] + 430) * sizeof(double), streams[j]>>> (size_offset[i][j]);
+        double gpu_input_net_time = clock();
+        print_GPU_mem();
+        {
+            int *input_node2_acc_num_cpu = new int[input_num + 1](), *input_node2_acc_num;
+            vector<int> RC_size_count(max_RC_node_count + 1, 0);
+            for(int i = 0; i < input_num; i++) {
+                int net_id = input_nets_cpu[i];
+                input_node2_acc_num_cpu[i + 1] = input_node2_acc_num_cpu[i] + (nets[net_id].n + 1) * (nets[net_id].n + 1);
+                RC_size_count[nets[net_id].n]++;
             }
+            for(int i = max_RC_node_count; i >= 1; i--) RC_size_count[i - 1] += RC_size_count[i];
+            cudaMalloc(&input_g, 2 * sizeof(double) * input_node2_acc_num_cpu[input_num]);
+            cudaMalloc(&input_inv, 2 * sizeof(double) * input_node2_acc_num_cpu[input_num]);
+            cudaMalloc(&input_cap_g, 2 * sizeof(double) * input_node2_acc_num_cpu[input_num]);
+            cudaMalloc(&input_node2_acc_num, sizeof(int) * (input_num + 1));
+            cudaMemcpy(input_node2_acc_num, input_node2_acc_num_cpu, sizeof(int) * (input_num + 1), cudaMemcpyHostToDevice);
+            int *input_idx2net_cpu = new int[input_node2_acc_num_cpu[input_num]](), *input_idx2net;
+            for(int i = 0; i < input_num; i++) {
+                int n = nets[input_nets_cpu[i]].n + 1;
+                for(int j = 0; j < n * n; j++) input_idx2net_cpu[input_node2_acc_num_cpu[i] + j] = i;
+            }
+            cudaMalloc(&input_idx2net, sizeof(int) * input_node2_acc_num_cpu[input_num]);
+            cudaMemcpy(input_idx2net, input_idx2net_cpu, sizeof(int) * input_node2_acc_num_cpu[input_num], cudaMemcpyHostToDevice);
+            build_input_mat<<<input_num * 2, max_RC_node_count + 1>>> (input_node2_acc_num, input_num);
+
+            for(int i = 0; i <= max_RC_node_count; i++) if(RC_size_count[i] > 0)
+                build_input_inv<<<BLOCK_NUM(2 * input_node2_acc_num_cpu[RC_size_count[i]]), THREAD_NUM>>>
+                    (input_node2_acc_num, input_idx2net, input_node2_acc_num_cpu[RC_size_count[i]], input_node2_acc_num_cpu[input_num], i, 0);
+            for(int i = max_RC_node_count; i >= 0; i--) if(RC_size_count[i] > 0)
+                build_input_inv<<<BLOCK_NUM(2 * input_node2_acc_num_cpu[RC_size_count[i]]), THREAD_NUM>>>
+                    (input_node2_acc_num, input_idx2net, input_node2_acc_num_cpu[RC_size_count[i]], input_node2_acc_num_cpu[input_num], i, 1);
+            build_input_inv<<<BLOCK_NUM(2 * input_node2_acc_num_cpu[input_num]), THREAD_NUM>>>
+                (input_node2_acc_num, input_idx2net, input_node2_acc_num_cpu[input_num], input_node2_acc_num_cpu[input_num], 0, 2);
+
+            calc_delay_input_new<<<input_num, max_RC_node_count + 1, (max_RC_node_count + 1) * sizeof(double)>>> (input_node2_acc_num, input_node2_acc_num_cpu[input_num], 20, 0);
+            calc_delay_input_new<<<input_num, max_RC_node_count + 1, (max_RC_node_count + 1) * sizeof(double)>>> (input_node2_acc_num, input_node2_acc_num_cpu[input_num], 20, 1);
+        }
         cudaDeviceSynchronize();
-    }
-    build_stage_matA<<<stage_num, max_RC_node_count>>> (1);
-    for(int i = 0; i < max_RC_port_count; i++) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 0, 1);
-    for(int i = max_RC_port_count - 1; i >= 0; i--) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 1, 1);
-    build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], 0, 2, 1);
+        assert(cudaGetLastError() == cudaSuccess);
+        output_log("GPU input net time: " + to_string((clock() - gpu_input_net_time) / CLOCKS_PER_SEC));
 
-    build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 0, 1);
-    build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 1, 1);
 
-    build_stage_invD<<<BLOCK_NUM(stage_inode2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_inode2_acc_num_cpu[stage_num], 1);//rely on build_stage_invBC(0)
-    {
-        int *sorted_stage_id_cpu = new int[stage_num];
-        for(int i = 0; i < stage_num; i++) sorted_stage_id_cpu[i] = i;
-        sort(sorted_stage_id_cpu, sorted_stage_id_cpu + stage_num, [&] (int l, int r) {
-            int net_l = stage_net_id_cpu[l], net_r = stage_net_id_cpu[r];
-            return nets[net_l].n < nets[net_r].n;
-        });
-        cudaMalloc(&sorted_stage_id, stage_num * sizeof(int));
-        cudaMemcpy(sorted_stage_id, sorted_stage_id_cpu, sizeof(int) * stage_num, cudaMemcpyHostToDevice);
-        vector<int> group_size = {32, 64, 128, 256, max_RC_node_count};
-        vector<int> group_cnt = {0, 0, 0, 0, 0};
-        for(int i = 0; i < stage_num; i++)
-            for(int j = 0; j < group_size.size(); j++)
-                if(nets[stage_net_id_cpu[i]].n <= group_size[j]) group_cnt[j]++;
-        for(int i = 0; i < group_size.size(); i++) {
-            int offset = (i > 0 ? group_cnt[i - 1] : 0);
-            if(group_cnt[i] <= offset) continue;
-            pass1<<<group_cnt[i] - offset, group_size[i], (group_size[i] + 430) * sizeof(double)>>> (offset);
+        GPU_sta_graph_start_time = clock();
+        build_stage_matA<<<stage_num, max_RC_node_count>>> (0);
+        for(int i = 0; i < max_RC_port_count; i++) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 0, 0);
+        for(int i = max_RC_port_count - 1; i >= 0; i--) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 1, 0);
+        build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], 0, 2, 0);
+        build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 0, 0);
+        build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 1, 0);
+        build_stage_invD<<<BLOCK_NUM(stage_inode2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_inode2_acc_num_cpu[stage_num], 0);//rely on build_stage_invBC(0)
+
+        cudaDeviceSynchronize();    
+        assert(cudaGetLastError() == cudaSuccess);
+
+        for(int i = 0; i < topo.size(); i++) {
+            int size_sum = 0, size_max = 32;
+            for(int j = 1; j < sizes.size(); j++) size_sum += size_num[i][j], size_max = max(size_max, size_max_node_num[i][j]);
+            if(size_sum < 300)
+                pass0<<<size_sum, size_max, (size_max + 430) * sizeof(double)>>> (size_offset[i][1]);
+            else 
+                for(int j = 1; j < sizes.size(); j++) if(size_num[i][j] > 0) {
+                    pass0<<<size_num[i][j], max(32, size_max_node_num[i][j]), (size_max_node_num[i][j] + 430) * sizeof(double), streams[j]>>> (size_offset[i][j]);
+                }
             cudaDeviceSynchronize();
         }
-    }
-    
-    cudaDeviceSynchronize();
-    
+        build_stage_matA<<<stage_num, max_RC_node_count>>> (1);
+        for(int i = 0; i < max_RC_port_count; i++) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 0, 1);
+        for(int i = max_RC_port_count - 1; i >= 0; i--) build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], i, 1, 1);
+        build_stage_invA<<<BLOCK_NUM(stage_port2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_port2_acc_num_cpu[stage_num], 0, 2, 1);
 
-    assert(cudaGetLastError() == cudaSuccess);
-    for(int i = 0; i < topo.size(); i++) {
-        int size_sum = 0;
-        for(int j = 1; j < sizes.size(); j++) size_sum += size_num[i][j];
-        propagate<<<size_sum, max_RC_port_count>>> (size_offset[i][1]);
-    }
-    cudaDeviceSynchronize();
-    double *output_delay_cpu = new double[net_num * 2];
-    cudaMemcpy(output_delay_cpu, output_delay, sizeof(double) * net_num * 2, cudaMemcpyDeviceToHost);
-    for(int i = 0; i < net_num; i++) if(net_type_cpu[i] == 2) {
-        po_at[0][nets[i].net_name] = output_delay_cpu[i];
-        po_at[1][nets[i].net_name] = output_delay_cpu[i + net_num];
-    }
-    output_log("GPU STA time: " + to_string((clock() - GPU_sta_graph_start_time) / CLOCKS_PER_SEC));
+        build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 0, 1);
+        build_stage_invBC<<<BLOCK_NUM(stage_portinode_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_portinode_acc_num_cpu[stage_num], 1, 1);
 
-    auto eval = [&] (vector<double> &pt, vector<double> &my, vector<double> &sp, string info) {
-        int success_count = 0, tot = sp.size();//sp.size();
-        double sp_my = 0, sp_pt = 0, sp_my_abs = 0, sp_pt_abs = 0;
-        for(int i = 0; i < tot; i++) if(sp[i] > 0) {
-            success_count++;
-            const double eps = 0.5;
-            if(fabs(my[i] - sp[i]) >= eps) {
-                sp_my += fabs(my[i] - sp[i]) / sp[i];
-                sp_my_abs += fabs(my[i] - sp[i]);
-            }
-            if(fabs(pt[i] - sp[i]) >= eps) {
-                sp_pt += fabs(pt[i] - sp[i]) / sp[i];
-                sp_pt_abs += fabs(pt[i] - sp[i]);
+        build_stage_invD<<<BLOCK_NUM(stage_inode2_acc_num_cpu[stage_num]), THREAD_NUM>>> (stage_inode2_acc_num_cpu[stage_num], 1);//rely on build_stage_invBC(0)
+        {
+            int *sorted_stage_id_cpu = new int[stage_num];
+            for(int i = 0; i < stage_num; i++) sorted_stage_id_cpu[i] = i;
+            sort(sorted_stage_id_cpu, sorted_stage_id_cpu + stage_num, [&] (int l, int r) {
+                int net_l = stage_net_id_cpu[l], net_r = stage_net_id_cpu[r];
+                return nets[net_l].n < nets[net_r].n;
+            });
+            cudaMalloc(&sorted_stage_id, stage_num * sizeof(int));
+            cudaMemcpy(sorted_stage_id, sorted_stage_id_cpu, sizeof(int) * stage_num, cudaMemcpyHostToDevice);
+            vector<int> group_size = {32, 64, 128, 256, max_RC_node_count};
+            vector<int> group_cnt = {0, 0, 0, 0, 0};
+            for(int i = 0; i < stage_num; i++)
+                for(int j = 0; j < group_size.size(); j++)
+                    if(nets[stage_net_id_cpu[i]].n <= group_size[j]) group_cnt[j]++;
+            for(int i = 0; i < group_size.size(); i++) {
+                int offset = (i > 0 ? group_cnt[i - 1] : 0);
+                if(group_cnt[i] <= offset) continue;
+                pass1<<<group_cnt[i] - offset, group_size[i], (group_size[i] + 430) * sizeof(double)>>> (offset);
+                cudaDeviceSynchronize();
             }
         }
-        sp_my = sp_my / success_count * 100;
-        sp_pt = sp_pt / success_count * 100;
-        sp_my_abs /= success_count;
-        sp_pt_abs /= success_count;
 
-        printf("\n------------------------\n");
-        cerr << "    " << info << endl;
-        printf("MY-SP%20.2fps%20.2f%%\n", sp_my_abs, sp_my);
-        printf("PT-SP%20.2fps%20.2f%%\n", sp_pt_abs, sp_pt);
-        printf("SP failed: %d out of %d\n", tot - success_count, tot);
-        printf("------------------------\n\n");
-    };
-    if(EVALUATE) {
-        double *stage_delay_cpu = new double[stage_port_acc_num_cpu[stage_num]]();
-        cudaMemcpy(stage_delay_cpu, stage_delay, sizeof(double) * stage_port_acc_num_cpu[stage_num], cudaMemcpyDeviceToHost);
-        my_cell_fall = my_cell_rise = vector<double> (arc2idx_cell.size(), 0);
-        my_net_fall = my_net_rise = vector<double> (arc2index_net.size(), 0);
-        for(int i = 0; i < stage_num; i++) {
-            int gate_id = stage_driver_gate_id_cpu[i], net_id = stage_net_id_cpu[i];
-            int ipin = stage_driver_ipin_cpu[i], opin = nets[net_id].gates[0].second;
-            int port_num = stage_port_acc_num_cpu[i + 1] - stage_port_acc_num_cpu[i];
-            for(int j = 0; j < port_num; j++) {
-                double val = stage_delay_cpu[stage_port_acc_num_cpu[i] + j];
-                if(j == 0) {
-                    auto &d = (stage_signal_cpu[i] % 2 ? my_cell_rise : my_cell_fall)[arc2idx_cell[make_tuple(gate_id, ipin, opin)]];
-                    d = max(d, val);
-                } else {
-                    auto &d = (stage_signal_cpu[i] % 2 ? my_net_rise : my_net_fall)[arc2index_net[make_pair(net_id, j)]];
-                    d = max(d, val);
+        cudaDeviceSynchronize();
+
+
+        assert(cudaGetLastError() == cudaSuccess);
+        for(int i = 0; i < topo.size(); i++) {
+            int size_sum = 0;
+            for(int j = 1; j < sizes.size(); j++) size_sum += size_num[i][j];
+            propagate<<<size_sum, max_RC_port_count>>> (size_offset[i][1]);
+        }
+        cudaDeviceSynchronize();
+        double *output_delay_cpu = new double[net_num * 2];
+        cudaMemcpy(output_delay_cpu, output_delay, sizeof(double) * net_num * 2, cudaMemcpyDeviceToHost);
+        for(int i = 0; i < net_num; i++) if(net_type_cpu[i] == 2) {
+            po_at[0][nets[i].net_name] = output_delay_cpu[i];
+            po_at[1][nets[i].net_name] = output_delay_cpu[i + net_num];
+        }
+        output_log("GPU STA time: " + to_string((clock() - GPU_sta_graph_start_time) / CLOCKS_PER_SEC));
+
+        auto eval = [&] (vector<double> &pt, vector<double> &my, vector<double> &sp, string info) {
+            int success_count = 0, tot = sp.size();//sp.size();
+            double sp_my = 0, sp_pt = 0, sp_my_abs = 0, sp_pt_abs = 0;
+            for(int i = 0; i < tot; i++) if(sp[i] > 0) {
+                success_count++;
+                const double eps = 0.5;
+                if(fabs(my[i] - sp[i]) >= eps) {
+                    sp_my += fabs(my[i] - sp[i]) / sp[i];
+                    sp_my_abs += fabs(my[i] - sp[i]);
+                }
+                if(fabs(pt[i] - sp[i]) >= eps) {
+                    sp_pt += fabs(pt[i] - sp[i]) / sp[i];
+                    sp_pt_abs += fabs(pt[i] - sp[i]);
                 }
             }
+            sp_my = sp_my / success_count * 100;
+            sp_pt = sp_pt / success_count * 100;
+            sp_my_abs /= success_count;
+            sp_pt_abs /= success_count;
+
+            printf("\n------------------------\n");
+            cerr << "    " << info << endl;
+            printf("MY-SP%20.2fps%20.2f%%\n", sp_my_abs, sp_my);
+            printf("PT-SP%20.2fps%20.2f%%\n", sp_pt_abs, sp_pt);
+            printf("SP failed: %d out of %d\n", tot - success_count, tot);
+            printf("------------------------\n\n");
+        };
+        if(EVALUATE) {
+            double *stage_delay_cpu = new double[stage_port_acc_num_cpu[stage_num]]();
+            cudaMemcpy(stage_delay_cpu, stage_delay, sizeof(double) * stage_port_acc_num_cpu[stage_num], cudaMemcpyDeviceToHost);
+            my_cell_fall = my_cell_rise = vector<double> (arc2idx_cell.size(), 0);
+            my_net_fall = my_net_rise = vector<double> (arc2index_net.size(), 0);
+            for(int i = 0; i < stage_num; i++) {
+                int gate_id = stage_driver_gate_id_cpu[i], net_id = stage_net_id_cpu[i];
+                int ipin = stage_driver_ipin_cpu[i], opin = nets[net_id].gates[0].second;
+                int port_num = stage_port_acc_num_cpu[i + 1] - stage_port_acc_num_cpu[i];
+                for(int j = 0; j < port_num; j++) {
+                    double val = stage_delay_cpu[stage_port_acc_num_cpu[i] + j];
+                    if(j == 0) {
+                        auto &d = (stage_signal_cpu[i] % 2 ? my_cell_rise : my_cell_fall)[arc2idx_cell[make_tuple(gate_id, ipin, opin)]];
+                        d = max(d, val);
+                    } else {
+                        auto &d = (stage_signal_cpu[i] % 2 ? my_net_rise : my_net_fall)[arc2index_net[make_pair(net_id, j)]];
+                        d = max(d, val);
+                    }
+                }
+            }
+
+            eval(pt_cell_fall, my_cell_fall, sp_cell_fall, "cell_fall");
+            eval(pt_cell_rise, my_cell_rise, sp_cell_rise, "cell_rise");
+            eval(pt_net_fall, my_net_fall, sp_net_fall, "net_fall");
+            eval(pt_net_rise, my_net_rise, sp_net_rise, "net_rise");
+            vector<double> pt_all = pt_cell_fall + pt_cell_rise + pt_net_fall + pt_net_rise;
+            vector<double> my_all = my_cell_fall + my_cell_rise + my_net_fall + my_net_rise;
+            vector<double> sp_all = sp_cell_fall + sp_cell_rise + sp_net_fall + sp_net_rise;
+            cerr << pt_all.size() << ' ' << my_all.size() << ' ' << sp_all.size() << endl;
+            eval(pt_all, my_all, sp_all, "all");
         }
 
-        eval(pt_cell_fall, my_cell_fall, sp_cell_fall, "cell_fall");
-        eval(pt_cell_rise, my_cell_rise, sp_cell_rise, "cell_rise");
-        eval(pt_net_fall, my_net_fall, sp_net_fall, "net_fall");
-        eval(pt_net_rise, my_net_rise, sp_net_rise, "net_rise");
-        vector<double> pt_all = pt_cell_fall + pt_cell_rise + pt_net_fall + pt_net_rise;
-        vector<double> my_all = my_cell_fall + my_cell_rise + my_net_fall + my_net_rise;
-        vector<double> sp_all = sp_cell_fall + sp_cell_rise + sp_net_fall + sp_net_rise;
-        cerr << pt_all.size() << ' ' << my_all.size() << ' ' << sp_all.size() << endl;
-        eval(pt_all, my_all, sp_all, "all");
-    }
+        
+}
 
 
-    if(CPU_STA) {
-        cerr << "start propagation" << endl;
+    if(useCPU) {
 
         for(auto vec : topo)
             for(auto gate_id : vec) {

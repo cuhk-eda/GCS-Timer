@@ -27,7 +27,9 @@ void read_lib() {
         for(auto file : files) threads.emplace_back(std::thread(CCS::read_lib, file));
         for(auto &thread : threads) thread.join();
     } else 
-        for(auto file : files) CCS::read_lib(file);
+        for(auto file : files) {
+            CCS::read_lib(file);
+        }
 }
 
 const std::string benchmark_path = "bm/";
@@ -42,7 +44,7 @@ int main(int argc, char* argv[]) {
 
     GPU_TIMER::design design(design_name, benchmark_path + design_name);
     double t = clock();
-    design.update_timing(20);
+    design.update_timing(20, argc > 2 && std::string(argv[2]) == "-CPU");
     output_log("update_timing: " + std::to_string((clock() - t) / CLOCKS_PER_SEC) + "s");
 
     return 0;
